@@ -1,306 +1,224 @@
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
-#include <getopt.h>
-#include <signal.h>
 #include <time.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
 #include <sys/shm.h>
-#include <semaphore.h>
-#include <fcntl.h>
-#define THRESHOLD 10
-#define BOUND 500
+#include <sys/ipc.h>
+#include <sys/sem.h>
+#include <sys/types.h>
 
-struct timer
-{
-	unsigned int seconds;
-	unsigned int ns;
-};
+#include "oss.h"
+#include "bit_vector.h"
 
-struct resource
-{
-	unsigned int maxAmt;
-	unsigned int available;
-	unsigned int request;
-	unsigned int allocation;
-	unsigned int release;
-	unsigned int reqArray[18];
-	unsigned int allArray[18];
-	unsigned int relArray[18];
-	int shared;
-};
+//maximum values for:
+#define B 75
 
-int errno;
-int myIndex;
-pid_t pid;
-char errmsg[200];
-struct timer *shmTime;
-int *shmChild;
-int *shmTerm;
-struct resource *shmRes;
-sem_t * semDead;
-sem_t * semTerm;
-sem_t * semChild;
+static int shmid = -1, semid = -1;
 
-/* Insert other shmid values here */
+struct arguments{
+	int pi;
+	int verbose;
+} args = {0, 0};
 
-void sigIntHandler(int signum)
-{
-	int i;
-	
-	snprintf(errmsg, sizeof(errmsg), "USER %d: Caught SIGINT! Killing process #%d.", pid, myIndex);
-	perror(errmsg);	
-	
-	for(i = 0; i < 20; i++)
-	{
-		shmRes[i].relArray[myIndex] = shmRes[i].allArray[myIndex];
-		shmRes[i].reqArray[myIndex] = 0;
-	}
-	
-	sem_wait(semTerm);
-	shmTerm[myIndex] = 1;
-	shmTerm[19]++;
-	sem_post(semTerm);
-	
-	sem_post(semDead);
-	
-	errno = shmdt(shmTime);
-	if(errno == -1)
-	{
-		snprintf(errmsg, sizeof(errmsg), "USER %d: shmdt(shmTime)", pid);
-		perror(errmsg);	
+static struct system* attach_shm(){
+	key_t key = ftok(SHARED_PATH, MEMORY_KEY);  //get a key for the shared memory
+	if(key == -1){
+		perror("ftok");
+		return NULL;
 	}
 
-	errno = shmdt(shmChild);
-	if(errno == -1)
-	{
-		snprintf(errmsg, sizeof(errmsg), "USER %d: shmdt(shmChild)", pid);
-		perror(errmsg);	
+	shmid = shmget(key, sizeof(struct system), 0);
+	if(shmid == -1){
+		perror("shmget");
+		return NULL;
 	}
-	
-	errno = shmdt(shmTerm);
-	if(errno == -1)
-	{
-		snprintf(errmsg, sizeof(errmsg), "USER %d: shmdt(shmTerm)", pid);
-		perror(errmsg);	
+
+	struct system *addr = (struct system *) shmat(shmid, NULL, 0);
+	if(addr == NULL){
+		perror("shmat");
+		return NULL;
 	}
-	
-	errno = shmdt(shmRes);
-	if(errno == -1)
-	{
-		snprintf(errmsg, sizeof(errmsg), "USER %d: shmdt(shmRes)", pid);
-		perror(errmsg);	
+
+	key = ftok(SHARED_PATH, SEMAPHORE_KEY);
+	if(key == -1){
+		perror("ftok");
+		return NULL;
 	}
-	exit(signum);
-}
 
-int main (int argc, char *argv[]) {
-int o;
-int i;
-int terminate = 0;
-struct timer termTime;
-struct timer reqlTime;
-int timeKey = atoi(argv[1]);
-int childKey = atoi(argv[2]);
-int index = atoi(argv[3]);
-myIndex = index;
-int termKey = atoi(argv[4]);
-int resKey = atoi(argv[5]);
-key_t keyTime = 8675;
-key_t keyChild = 5309;
-key_t keyTerm = 1138;
-key_t keyRes = 8311;
-signal(SIGINT, sigIntHandler);
-pid = getpid();
-unsigned int nextRes;
-
-/* Seed random number generator */
-srand(pid * time(NULL));
-
-/* snprintf(errmsg, sizeof(errmsg), "USER %d: Slave process started!", pid);
-perror(errmsg); */
-
-/********************MEMORY ATTACHMENT********************/
-/* Point shmTime to shared memory */
-shmTime = shmat(timeKey, NULL, 0);
-if ((void *)shmTime == (void *)-1)
-{
-	snprintf(errmsg, sizeof(errmsg), "USER: shmat(shmidTime)");
-	perror(errmsg);
-    exit(1);
-}
-
-/* Point shmChild to shared memory */
-shmChild = shmat(childKey, NULL, 0);
-if ((void *)shmChild == (void *)-1)
-{
-	snprintf(errmsg, sizeof(errmsg), "USER: shmat(shmidChild)");
-	perror(errmsg);
-    exit(1);
-}
-
-/* Point shmTerm to shared memory */
-shmTerm = shmat(termKey, NULL, 0);
-if ((void *)shmTerm == (void *)-1)
-{
-	snprintf(errmsg, sizeof(errmsg), "USER: shmat(shmidTerm)");
-	perror(errmsg);
-    exit(1);
-}
-
-/* Point shmRes to shared memory */
-shmRes = shmat(resKey, NULL, 0);
-if ((void *)shmRes == (void *)-1)
-{
-	snprintf(errmsg, sizeof(errmsg), "USER: shmat(shmidRes)");
-	perror(errmsg);
-    exit(1);
-}
-/********************END ATTACHMENT********************/
-
-/********************SEMAPHORE CREATION********************/
-/* Open Semaphore */
-semDead=sem_open("semDead", 1);
-if(semDead == SEM_FAILED) {
-	snprintf(errmsg, sizeof(errmsg), "USER %d: sem_open(semDead)...", pid);
-	perror(errmsg);
-    exit(1);
-}
-
-semTerm=sem_open("semTerm", 1);
-if(semTerm == SEM_FAILED) {
-	snprintf(errmsg, sizeof(errmsg), "USER %d: sem_open(semTerm)...", pid);
-	perror(errmsg);
-    exit(1);
-}
-
-semChild=sem_open("semChild", 1);
-if(semTerm == SEM_FAILED) {
-	snprintf(errmsg, sizeof(errmsg), "USER %d: sem_open(semChild)...", pid);
-	perror(errmsg);
-    exit(1);
-}
-/********************END SEMAPHORE CREATION********************/
-
-/* Calculate First Request/Release Time */
-reqlTime.ns = shmTime->ns + rand()%(BOUND);
-reqlTime.seconds = shmTime->seconds;
-if (reqlTime.ns > 1000000000)
-{
-	reqlTime.ns -= 1000000000;
-	reqlTime.seconds += 1;
-}
-
-while(!terminate)
-{
-	if(rand()%100 <= THRESHOLD)
-	{
-		terminate = 1;
+	semid = semget(key, 1 + MAX_RUNNING, 0);
+	if(semid == -1){
+		perror("msgget");
+		return NULL;
 	}
-	/* else
-	{
-		snprintf(errmsg, sizeof(errmsg), "USER %d: Slave process continuing!", pid);
-		perror(errmsg);
-	} */
-	
-	/* Calculate Termination Time */
-	termTime.ns = shmTime->ns + rand()%250000000;
-	termTime.seconds = shmTime->seconds;
-	if (termTime.ns > 1000000000)
-	{
-		termTime.ns -= 1000000000;
-		termTime.seconds += 1;
-	}
-	
-	
 
-	if(reqlTime.seconds <= shmTime->seconds)
-	{
-		if(reqlTime.ns <= shmTime->ns || reqlTime.seconds < shmTime->seconds)
-		{
-			/********************ENTER CRITICAL SECTION********************/
-			/* sem_wait(semChild); */	/* P operation */
-			nextRes = rand()%20;
-			if(shmRes[nextRes].allArray[index] == 0)
-			{
-				shmRes[nextRes].reqArray[index]++;
-				while(shmRes[nextRes].reqArray[index]);
-			}
-			else
-			{
-				if(rand()%10)
-				{
-					shmRes[nextRes].reqArray[index]++;
-					while(shmRes[nextRes].reqArray[index]);
-				}
-				else
-				{
-					shmRes[nextRes].relArray[index] = shmRes[nextRes].allArray[index];
+	return addr;
+}
+
+int main(const int argc, char * const argv[]){
+
+	if(argc < 2){
+		fprintf(stderr, "Error: Missing pi argument\n");
+		return 1;
+	}
+
+	args.pi = atoi(argv[1]);
+	if((argc == 3) && (strcmp("verbose", argv[2]) == 0))
+		args.verbose = 1;
+
+	//we don't use the shared memory, but we attach it
+	struct system *sys = attach_shm();
+	if(sys == NULL){
+		return 1;
+	}
+	struct proc_info * proc = &sys->procs[args.pi];
+
+	srand(getpid() * args.pi);	//init rand()
+
+	if(args.verbose){
+		char buf[10];
+		snprintf(buf, sizeof(buf), "%d.log", proc->id);
+		stdout = freopen(buf, "w", stdout);
+		stderr = freopen(buf, "w", stderr);
+	}else{
+		stdout = freopen("/dev/null", "w", stdout);
+		stderr = freopen("/dev/null", "w", stderr);
+	}
+
+	printf("PID=%i, pi=%d, ID=%d\n", getpid(), args.pi, proc->id);
+	fflush(stdout);
+
+	struct sembuf sop;
+	struct request rq;
+
+	proc->state = READY;
+
+
+	sop.sem_num =	sop.sem_flg = 0;
+
+	int num_requests = (rand() % 10),
+			alive = 10,	//we will make 10 request to oss
+	 	  using = 0;
+  while(alive || using){
+
+		if(--num_requests < 0)
+			alive = 0;
+
+		const int x = (alive) ? (rand() % 100) : B + 1;	//if we are alive, request or release, otherwise only release
+		if(x <= B){	//[0; B] == REQUEST
+
+			rq.r   = rand() % RMAX;				//generate random resource to take
+			rq.val = 1 + rand() % (RMAX_VALUE-1);
+			rq.op  = REQUEST;
+
+			if(is_shareable(rq.r) == 0){   //if resource is not shareable
+		    rq.val = sys->maxres[rq.r];  //update request to try to take whole resource
+		  }
+
+			printf("Will ask for R%d:%d\n", rq.r, rq.val);
+
+		}else{	// (B; 100] == RELEASE
+			rq.r = -1;
+			//check what we have and release some of it
+			int i;
+			for(i=0; i < RMAX; i++){
+				if(proc->usage[i] > 0){	//if we are using this resource
+					rq.r = i;
+					rq.val = proc->usage[i];	//release all of it or part ?
+					rq.op = RELEASE;
+					printf("Will give back R%d:%d\n", rq.r, rq.val);
+					break;
 				}
 			}
-			/* Calculate Next Request/Release Time */
-			reqlTime.ns = shmTime->ns + rand()%(BOUND);
-			reqlTime.seconds = shmTime->seconds;
-			if (reqlTime.ns > 1000000000)
-			{
-				reqlTime.ns -= 1000000000;
-				reqlTime.seconds += 1;
+
+			if(rq.r == -1){	//if we are not using anything
+				printf("Nothing to release\n");
+				using = 0;
+				continue;	//restart the loop
 			}
-			/* sem_post(semChild); */ /* V operation */  
-			/********************EXIT CRITICAL SECTION********************/
 		}
+		rq.res = WAITFOR;	//we are waiting for result
+		fflush(stdout);
+
+		//lock sys to "send" request into shared memory
+		sop.sem_num = 0;
+		sop.sem_op = -1;
+		if (semop(semid, &sop, 1) == -1) {
+			 perror("semop");
+			 break;
+		}
+
+		proc->rq = rq;		//save request in shared memory
+
+		sop.sem_num = 0;
+		sop.sem_op = 1;	//unlock
+		if (semop(semid, &sop, 1) == -1) {
+			 perror("semop");
+			 break;
+		}
+
+
+		//wait on our semaphore, to be unblocked by master, when resource is ready
+		sop.sem_num = args.pi + 1;
+		sop.sem_op = -1;
+		if (semop(semid, &sop, 1) == -1) {
+			 perror("semop");
+			 break;
+		}
+
+		//check if we have a reply
+		switch(proc->rq.res){
+			case GRANTED:
+				printf("Granted\n");
+				if(rq.op == REQUEST)
+					using += rq.val;	//sum used resources
+				else
+					using -= rq.val;	//sum used resources
+				break;
+			case BLOCKED:	//resource is not available
+				//we wont get here, because we wait on the semaphore
+				printf("Error: BLOCKED after sem\n");
+				break;
+			case DENIED:	//we are in a deadlock
+				printf("Denied\n");
+				alive = 0;
+				using = 0;	//parent clears the resources
+				break;
+			case WAITFOR:
+				alive = 0;
+				using = 0;	//parent clears the resources
+				//we wont get here, because we wait on the semaphore
+				printf("Error: WAITFOR after sem\n");
+				break;
+		}
+
+
+		//check if we have to terminate
+		if(proc->state == TERMINATED){
+			alive = 0;	//stop the while
+			printf("Terminated by parent...\n");
+		}
+		fflush(stdout);
+  }
+
+	//lock sys to "send" request into shared memory
+	sop.sem_num = 0;
+	sop.sem_op = -1;
+	if (semop(semid, &sop, 1) == -1) {
+		 perror("semop");
 	}
-	
-	
-	/* Wait for the system clock to pass the time */
-	while(termTime.seconds > shmTime->seconds);
-	while(termTime.ns > shmTime->ns);
-	
-}
-/* snprintf(errmsg, sizeof(errmsg), "USER %d: Slave process sleeping!", pid);
-perror(errmsg);
-sleep(1); */
-/* signal the release the process from the running processes */
-sem_wait(semTerm);
-shmTerm[index] = 1;
-sem_post(semTerm);
-snprintf(errmsg, sizeof(errmsg), "USER %d: Slave process terminating!", pid);
-perror(errmsg);
-sem_post(semDead);
 
-/********************MEMORY DETACHMENT********************/
-errno = shmdt(shmTime);
-if(errno == -1)
-{
-	snprintf(errmsg, sizeof(errmsg), "USER: shmdt(shmTime)");
-	perror(errmsg);	
-}
+	proc->state = TERMINATED;
 
-errno = shmdt(shmChild);
-if(errno == -1)
-{
-	snprintf(errmsg, sizeof(errmsg), "USER: shmdt(shmChild)");
-	perror(errmsg);	
-}
+	sop.sem_num = 0;
+	sop.sem_op = 1;	//unlock
+	if (semop(semid, &sop, 1) == -1) {
+		 perror("semop");
+	}
 
-errno = shmdt(shmTerm);
-if(errno == -1)
-{
-	snprintf(errmsg, sizeof(errmsg), "USER: shmdt(shmTerm)");
-	perror(errmsg);	
-}
 
-errno = shmdt(shmRes);
-if(errno == -1)
-{
-	snprintf(errmsg, sizeof(errmsg), "USER: shmdt(shmRes)");
-	perror(errmsg);	
+	printf("Done\n");
+  shmdt(sys);
+
+	return EXIT_SUCCESS;
 }
-/********************END DETACHMENT********************/
-exit(0);
-return 0;
-}
- 
