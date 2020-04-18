@@ -75,7 +75,7 @@ int main(const int argc, char * const argv[]){
 
 	srand(getpid() * args.pi);	//init rand()
 
-	if(args.verbose){
+	if(!args.verbose){
 		char buf[10];
 		snprintf(buf, sizeof(buf), "%d.log", proc->id);
 		stdout = freopen(buf, "w", stdout);
