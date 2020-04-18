@@ -66,8 +66,26 @@ static void show_stats(){
 
 }
 
+unsigned int num_lines = 0;
+
 static void log_line(const char *fmt, ...){
-  static unsigned int num_lines = 0;
+  if (!verbose)
+    return;
+
+  if(num_lines == 10000){  //if max lines reached
+    stdout = freopen("/dev/null", "w", stdout); //discard lines to null device
+  }
+  num_lines++;
+
+
+  va_list ap;
+
+  va_start(ap, fmt);
+  vprintf(fmt, ap);
+  va_end(ap);
+}
+
+static void log_line_always(const char *fmt, ...){
 
   if(num_lines == 10000){  //if max lines reached
     stdout = freopen("/dev/null", "w", stdout); //discard lines to null device
@@ -316,15 +334,15 @@ static int find_first_dead(int * finish){
 }
 
 static void print_all_dead(int * finish){
-  log_line("\tProcesses ");
+  log_line_always("\tProcesses ");
 
   int i;
   for(i=0; i < MAX_RUNNING; i++){
     if(finish[i] == 0){	//if not finised
-      log_line("P%i ", sys->procs[i].id);
+      log_line_always("P%i ", sys->procs[i].id);
     }
   }
-  log_line(" deadlocked.\n");
+  log_line_always(" deadlocked.\n");
 }
 
 static int find_finish_states(int * finish, int * work){
@@ -375,7 +393,8 @@ static int dead_state(){
 	}
 
   const int first_dead = find_first_dead(finish);
-  if(verbose && (first_dead >= 0))
+  //if(verbose && (first_dead >= 0))
+  if((first_dead >= 0))
     print_all_dead(finish);
 
 	return first_dead;  //return how many processes are dead
@@ -384,29 +403,28 @@ static int dead_state(){
 static void kill_dead(int pi){
   struct proc_info * proc = &sys->procs[pi];
 
-  if(verbose)
+  //if(verbose)
     printf("\tKilling P%i deadlocked on R%d:%d\n", proc->id, proc->rq.r, proc->rq.val);
 
   //proc->state = TERMINATED;
   proc->rq.res = DENIED;
   rstat.denied++;
 
-  if(verbose){
-    log_line("\t\tResources released are as follows:");
+  //if(verbose){
+    log_line_always("\t\tResources released are as follows:");
 
     int i;
     for(i=0; i < RMAX; i++){
       if(proc->usage[i] > 0){
-  		    log_line("R%i:%d ", i, proc->usage[i]);
+  		    log_line_always("R%i:%d ", i, proc->usage[i]);
       }
     }
-  	log_line("\n");
-  }
+  	log_line_always("\n");
+  //}
   dstat.procs_terminated++;
 
   //return allocated to system
-  int i;
-  for(i=0; i < RMAX; i++){
+  for(int i=0; i < RMAX; i++){
     sys->resources[i] += proc->usage[i];  //return used to system
     proc->usage[i] = 0; //clear usage
   }
@@ -427,15 +445,15 @@ void deadlock_detection(){
   int p = -1;  //id of first deadlocked process
   //loop until we clear the deadlocked processes
   while((p = dead_state()) >= 0){
-    if(verbose)
+    //if(verbose)
       log_line("\tAttempting to resolve deadlock...\n");
     kill_dead(p);  //terminate first deadlocked process
   }
 
   if(p >= 0){ //if there was a deadlock
-    if(verbose){
+    //if(verbose){
       log_line("System is no longer in deadlock\n");
-    }
+    //}
   }
 }
 
