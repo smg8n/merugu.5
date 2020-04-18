@@ -7,12 +7,6 @@ oss.c simulates a primitive operating system that spawns processes (user.c) and 
 Options
 -h Help option: displays options and their usage for oss.c.
 Usage: ./oss -h
--s Slave option: this option sets the number of slave processes from 1-19 (default 5).
-Usage: ./oss -s 10
--l Logfile option: this option changes the name of the logfile to the chosen parameter (default msglog.out).
-Usage: ./oss -l output.txt
--t Timeout option: this option sets the maximum run time allowed by the program in seconds before terminating (default 20).
-Usage: ./oss -t 5
 -v Verbose option: this option affects what information is saved in the log file.
 Usage: ./oss -v
 
