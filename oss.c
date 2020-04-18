@@ -72,7 +72,7 @@ static void log_line(const char *fmt, ...){
   if (!verbose)
     return;
 
-  if(num_lines == 10000){  //if max lines reached
+  if(num_lines == 100000){  //if max lines reached
     stdout = freopen("/dev/null", "w", stdout); //discard lines to null device
   }
   num_lines++;
