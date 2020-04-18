@@ -24,3 +24,17 @@ Usage: ./oss -h
 Usage: ./oss -v
 
 Default output log file is 	log.txt
+
+Description
+We use bitmap for storing available process blocks, and shareable resources.
+  
+
+For synchronization we use 1 + N semaphores, where N is the number of maximum running processes.
+first semapore is for the shared region, rest are process semaphores, where each process, waits
+for the result of his request.
+
+Deadlock detection is done, before we start processing requests from users.
+If there is a deadlock, we try to kill first deadlocked process, then repeat the deadlock check.
+
+User processes generate up to 10 requests, then they quit, releasing everything on exit.
+This can be changed on line 99 in user.c
