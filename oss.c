@@ -228,14 +228,14 @@ static void proc_cleanup(){
 
 static void show_allocated_resources(){
   int i,j;
+  if(verbose){
 
+  
   puts("OSS: Current system resources");
-
   printf("    ");
   for(i=0; i < RMAX; i++)
     printf("R%-2d ", i);
   printf("\n");
-
   for(i=0; i < MAX_RUNNING; i++){
     struct proc_info * proc = &sys->procs[i];
 
@@ -248,6 +248,7 @@ static void show_allocated_resources(){
       }
       printf("\n");
     }
+  }
   }
 }
 
