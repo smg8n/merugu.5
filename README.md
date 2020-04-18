@@ -23,7 +23,7 @@ Usage: ./oss -h
   -v Verbose option: this option affects what information is saved in the log file.
 Usage: ./oss -v
 
-Default output log file is 	log.txt
+The output log file is log.txt
 
 Description
 We use bitmap for storing available process blocks, and shareable resources.
