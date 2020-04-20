@@ -12,6 +12,7 @@
 #include <strings.h>
 #include <unistd.h>
 #include <time.h>
+#include <signal.h>
 
 #include "oss.h"
 #include "bit_vector.h"
@@ -424,9 +425,9 @@ static void kill_dead(int pi){
   dstat.procs_terminated++;
 
   //return allocated to system
-  for(int i=0; i < RMAX; i++){
-    sys->resources[i] += proc->usage[i];  //return used to system
-    proc->usage[i] = 0; //clear usage
+  for(int j=0; j < RMAX; j++){
+    sys->resources[j] += proc->usage[j];  //return used to system
+    proc->usage[j] = 0; //clear usage
   }
 
   //unblock the waiting process
