@@ -47,7 +47,7 @@ static struct sembuf sop;
 static unsigned int verbose = 0;
 
 static void show_stats(){
-  printf("### Simulation Stats ###\n");
+  printf("### Simulation Statistics ###\n");
   printf("Total time: %i:%i\n", sys->oss_clock.seconds, sys->oss_clock.nanoseconds);
 
   printf("Processes:\n");
@@ -425,7 +425,8 @@ static void kill_dead(int pi){
   dstat.procs_terminated++;
 
   //return allocated to system
-  for(int j=0; j < RMAX; j++){
+  int j;
+  for(j=0; j < RMAX; j++){
     sys->resources[j] += proc->usage[j];  //return used to system
     proc->usage[j] = 0; //clear usage
   }
