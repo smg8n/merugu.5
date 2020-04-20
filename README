@@ -30,8 +30,8 @@ We use bitmap for storing available process blocks, and shareable resources.
   
 
 For synchronization we use 1 + N semaphores, where N is the number of maximum running processes.
-first semapore is for the shared region, rest are process semaphores, where each process, waits
-for the result of his request.
+First semaphore is for the shared region, rest are process semaphores, where each process waits
+for the result of this request.
 
 Deadlock detection is done, before we start processing requests from users.
 If there is a deadlock, we try to kill first deadlocked process, then repeat the deadlock check.
